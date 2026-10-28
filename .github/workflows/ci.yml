@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: pip install -r requirements.txt
+      - name: Tests (offline, committed Eurostat snapshot)
+        run: pytest -q
+      - name: Full pipeline run reproduces the committed numbers
+        run: |
+          PYTHONPATH=src python -m milkplan run --offline
+          python - <<'PY'
+          import json
+          d = json.load(open("output/run_summary.json"))
+          assert d["best_model"] == "ets", d["best_model"]
+          assert d["mean_mape_best"] < d["mean_mape_seasonal_naive"], "best model must beat the seasonal naive baseline"
+          for r in d["forecast"]:
+              assert r["p10"] <= r["p50"] <= r["p90"], r
+          print("best", d["best_model"], d["mean_mape_best"], "vs naive", d["mean_mape_seasonal_naive"])
+          PY
